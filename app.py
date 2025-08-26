@@ -1,27 +1,10 @@
 import streamlit as st
 import cv2
-import dlib
-from scipy.spatial.distance import euclidean
 import numpy as np
 import time
+from scipy.spatial.distance import euclidean
+import mediapipe as mp
 
-# --- IMPORTANT: SETUP INSTRUCTIONS ---
-# 1. You must have a 'requirements.txt' file with the following lines:
-#    streamlit
-#    opencv-python
-#    dlib
-#    scipy
-#    numpy
-#
-# 2. You must have a 'packages.txt' file with the following lines to install
-#    the necessary system dependencies on the Streamlit Cloud server:
-#    libgl1
-#    libglib2.0-0
-#
-# 3. Download the facial landmark model from dlib:
-#    - Download: http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
-#    - Unzip it to get 'shape_predictor_68_face_landmarks.dat'
-#    - Place this .dat file in the same directory as this Python script.
 
 # --- Configuration ---
 st.title("Professional Drowsiness Detector")
@@ -31,24 +14,20 @@ st.markdown("This app uses your webcam to detect drowsiness. A **visual alarm** 
 EAR_THRESHOLD = 0.25
 CONSECUTIVE_FRAMES = 15
 
-# --- Dlib Setup ---
-try:
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
-except RuntimeError as e:
-    st.error(f"Error loading dlib model: {e}")
-    st.info("Please make sure you have downloaded 'shape_predictor_68_face_landmarks.dat' and placed it in the same folder.")
-    st.stop()
-
-# Get the indexes for the left and right eye landmarks from the 68-point model
-(lStart, lEnd) = (36, 42)
-(rStart, rEnd) = (42, 48)
-
 # --- State Variables for Streamlit Session ---
 if 'frames_closed' not in st.session_state:
     st.session_state.frames_closed = 0
 if 'alarm_active' not in st.session_state:
     st.session_state.alarm_active = False
+
+# Initialize MediaPipe FaceMesh
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(
+    static_image_mode=False,
+    max_num_faces=1,
+    refine_landmarks=True,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5)
 
 # --- Core Drowsiness Detection Functions ---
 def eye_aspect_ratio(eye):
@@ -63,35 +42,48 @@ def process_image(img):
     """Processes a single image for drowsiness detection."""
     global frames_closed
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = detector(gray, 0)
+    # Flip the frame horizontally for a "mirror" effect and convert to RGB
+    img = cv2.flip(img, 1)
+    rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
-    if len(faces) > 0:
-        face = faces[0]
-        landmarks = predictor(gray, face)
-        
-        left_eye = np.array([(landmarks.part(i).x, landmarks.part(i).y) for i in range(lStart, lEnd)])
-        right_eye = np.array([(landmarks.part(i).x, landmarks.part(i).y) for i in range(rStart, rEnd)])
-        
-        left_ear = eye_aspect_ratio(left_eye)
-        right_ear = eye_aspect_ratio(right_eye)
-        avg_ear = (left_ear + right_ear) / 2.0
-        
-        cv2.drawContours(img, [cv2.convexHull(left_eye)], -1, (0, 255, 0), 1)
-        cv2.drawContours(img, [cv2.convexHull(right_eye)], -1, (0, 255, 0), 1)
+    # Process the image with MediaPipe
+    results = face_mesh.process(rgb_img)
 
-        (x, y, w, h) = (face.left(), face.top(), face.width(), face.height())
-        cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
-        
-        if avg_ear < EAR_THRESHOLD:
-            st.session_state.frames_closed += 1
-            if st.session_state.frames_closed >= CONSECUTIVE_FRAMES:
-                st.session_state.alarm_active = True
-                cv2.putText(img, "!!! DROWSINESS DETECTED !!!", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        else:
-            st.session_state.frames_closed = 0
-            st.session_state.alarm_active = False
+    if results.multi_face_landmarks:
+        for face_landmarks in results.multi_face_landmarks:
+            # MediaPipe eye landmark indices for EAR calculation
+            left_eye_indices = [33, 160, 158, 133, 153, 144]
+            right_eye_indices = [362, 385, 387, 263, 374, 380]
+
+            # Get the coordinates of the eye landmarks
+            left_eye_points = np.array([(face_landmarks.landmark[i].x * img.shape[1],
+                                         face_landmarks.landmark[i].y * img.shape[0])
+                                         for i in left_eye_indices])
+            right_eye_points = np.array([(face_landmarks.landmark[i].x * img.shape[1],
+                                          face_landmarks.landmark[i].y * img.shape[0])
+                                          for i in right_eye_indices])
+
+            # Calculate the EAR for both eyes
+            left_ear = eye_aspect_ratio(left_eye_points)
+            right_ear = eye_aspect_ratio(right_eye_points)
+            avg_ear = (left_ear + right_ear) / 2.0
+
+            # Draw contours around the eyes
+            left_eye_hull = cv2.convexHull(left_eye_points.astype(np.int32))
+            right_eye_hull = cv2.convexHull(right_eye_points.astype(np.int32))
+            cv2.drawContours(img, [left_eye_hull], -1, (0, 255, 0), 1)
+            cv2.drawContours(img, [right_eye_hull], -1, (0, 255, 0), 1)
+
+            # Drowsiness detection logic
+            if avg_ear < EAR_THRESHOLD:
+                st.session_state.frames_closed += 1
+                if st.session_state.frames_closed >= CONSECUTIVE_FRAMES:
+                    st.session_state.alarm_active = True
+                    cv2.putText(img, "!!! DROWSINESS DETECTED !!!", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            else:
+                st.session_state.frames_closed = 0
+                st.session_state.alarm_active = False
     else:
         st.session_state.frames_closed = 0
         st.session_state.alarm_active = False
@@ -114,11 +106,9 @@ with col2:
 
 # Process the image if one is provided
 if picture:
-    # Read the image from the camera input as a NumPy array
     bytes_data = picture.getvalue()
     img_array = np.frombuffer(bytes_data, np.uint8)
     img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-    # Process the image and display the result
     processed_img = process_image(img.copy())
     st.image(processed_img, channels="BGR", caption="Processed Image")

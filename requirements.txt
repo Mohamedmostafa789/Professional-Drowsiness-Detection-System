@@ -1,9 +1,9 @@
 streamlit
 opencv-python
 dlib
-numpy
-pygame 
 scipy
+numpy
+pygame
 requests
-twilio
 bz2-python
+twilio

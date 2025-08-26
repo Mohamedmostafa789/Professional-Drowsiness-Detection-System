@@ -1,24 +1,30 @@
 import streamlit as st
 import cv2
 import numpy as np
-import time
-from scipy.spatial.distance import euclidean
 import mediapipe as mp
+from scipy.spatial.distance import euclidean
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
+import av
 
+# --- IMPORTANT: SETUP INSTRUCTIONS ---
+# 1. You must have a 'requirements.txt' file with the following lines:
+
+#
+# 2. You must have a 'packages.txt' file with the following lines to install
+#    the necessary system dependencies on the Streamlit Cloud server:
+#    libgl1
+#    libglib2.0-0
+#    
+# This version avoids the single-frame limitation of st.camera_input() by using a
+# real-time video streamer.
 
 # --- Configuration ---
-st.title("Professional Drowsiness Detector")
-st.markdown("This app uses your webcam to detect drowsiness. A **visual alarm** will be displayed if your eyes are closed for too long.")
+st.title("Real-Time Drowsiness Detector")
+st.markdown("This app uses your live webcam feed to detect drowsiness. A **visual alarm** will be displayed when your eyes are closed for too long.")
 
 # Parameters for drowsiness detection
 EAR_THRESHOLD = 0.25
 CONSECUTIVE_FRAMES = 15
-
-# --- State Variables for Streamlit Session ---
-if 'frames_closed' not in st.session_state:
-    st.session_state.frames_closed = 0
-if 'alarm_active' not in st.session_state:
-    st.session_state.alarm_active = False
 
 # Initialize MediaPipe FaceMesh
 mp_face_mesh = mp.solutions.face_mesh
@@ -38,77 +44,90 @@ def eye_aspect_ratio(eye):
     ear = (A + B) / (2.0 * C)
     return ear
 
-def process_image(img):
-    """Processes a single image for drowsiness detection."""
-    global frames_closed
+class VideoProcessor(VideoTransformerBase):
+    """Processes video frames in real-time to detect drowsiness."""
+    def __init__(self):
+        # Initialize state variables
+        self.frames_closed = 0
+        self.alarm_active = False
 
-    # Flip the frame horizontally for a "mirror" effect and convert to RGB
-    img = cv2.flip(img, 1)
-    rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    
-    # Process the image with MediaPipe
-    results = face_mesh.process(rgb_img)
+    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+        """
+        Receives a video frame, processes it, and returns the modified frame.
+        This method is called for every frame in the video stream.
+        """
+        img = frame.to_ndarray(format="bgr24")
 
-    if results.multi_face_landmarks:
-        for face_landmarks in results.multi_face_landmarks:
-            # MediaPipe eye landmark indices for EAR calculation
-            left_eye_indices = [33, 160, 158, 133, 153, 144]
-            right_eye_indices = [362, 385, 387, 263, 374, 380]
+        # Flip the frame for a mirror effect and convert to RGB
+        img = cv2.flip(img, 1)
+        rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        # Process the image with MediaPipe
+        results = face_mesh.process(rgb_img)
 
-            # Get the coordinates of the eye landmarks
-            left_eye_points = np.array([(face_landmarks.landmark[i].x * img.shape[1],
-                                         face_landmarks.landmark[i].y * img.shape[0])
-                                         for i in left_eye_indices])
-            right_eye_points = np.array([(face_landmarks.landmark[i].x * img.shape[1],
-                                          face_landmarks.landmark[i].y * img.shape[0])
-                                          for i in right_eye_indices])
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                # MediaPipe eye landmark indices for EAR calculation
+                left_eye_indices = [33, 160, 158, 133, 153, 144]
+                right_eye_indices = [362, 385, 387, 263, 374, 380]
 
-            # Calculate the EAR for both eyes
-            left_ear = eye_aspect_ratio(left_eye_points)
-            right_ear = eye_aspect_ratio(right_eye_points)
-            avg_ear = (left_ear + right_ear) / 2.0
+                # Get the coordinates of the eye landmarks
+                left_eye_points = np.array([(face_landmarks.landmark[i].x * img.shape[1],
+                                             face_landmarks.landmark[i].y * img.shape[0])
+                                             for i in left_eye_indices])
+                right_eye_points = np.array([(face_landmarks.landmark[i].x * img.shape[1],
+                                              face_landmarks.landmark[i].y * img.shape[0])
+                                              for i in right_eye_indices])
 
-            # Draw contours around the eyes
-            left_eye_hull = cv2.convexHull(left_eye_points.astype(np.int32))
-            right_eye_hull = cv2.convexHull(right_eye_points.astype(np.int32))
-            cv2.drawContours(img, [left_eye_hull], -1, (0, 255, 0), 1)
-            cv2.drawContours(img, [right_eye_hull], -1, (0, 255, 0), 1)
+                # Calculate the EAR for both eyes
+                left_ear = eye_aspect_ratio(left_eye_points)
+                right_ear = eye_aspect_ratio(right_eye_points)
+                avg_ear = (left_ear + right_ear) / 2.0
 
-            # Drowsiness detection logic
-            if avg_ear < EAR_THRESHOLD:
-                st.session_state.frames_closed += 1
-                if st.session_state.frames_closed >= CONSECUTIVE_FRAMES:
-                    st.session_state.alarm_active = True
-                    cv2.putText(img, "!!! DROWSINESS DETECTED !!!", (10, 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            else:
-                st.session_state.frames_closed = 0
-                st.session_state.alarm_active = False
-    else:
-        st.session_state.frames_closed = 0
-        st.session_state.alarm_active = False
-        cv2.putText(img, "No face detected", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                # Draw contours around the eyes
+                left_eye_hull = cv2.convexHull(left_eye_points.astype(np.int32))
+                right_eye_hull = cv2.convexHull(right_eye_points.astype(np.int32))
+                cv2.drawContours(img, [left_eye_hull], -1, (0, 255, 0), 1)
+                cv2.drawContours(img, [right_eye_hull], -1, (0, 255, 0), 1)
+                
+                # Drowsiness detection logic
+                if avg_ear < EAR_THRESHOLD:
+                    self.frames_closed += 1
+                    if self.frames_closed >= CONSECUTIVE_FRAMES:
+                        self.alarm_active = True
+                else:
+                    self.frames_closed = 0
+                    self.alarm_active = False
+        else:
+            self.frames_closed = 0
+            self.alarm_active = False
+            cv2.putText(img, "No face detected", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        # Display status text based on alarm state
+        if self.alarm_active:
+            cv2.putText(img, "!!! DROWSINESS DETECTED !!!", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        else:
+            cv2.putText(img, "Eyes Open. All Clear.", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-    return img
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # --- Main Streamlit App Logic ---
-st.markdown("---")
-col1, col2 = st.columns([1, 1])
-with col1:
-    picture = st.camera_input("Take a picture to analyze...")
-    
-with col2:
-    if st.session_state.alarm_active:
-        st.error("!!! Drowsiness Detected! Wake up! !!!")
-    else:
-        st.success(f"Eyes Open. Closed frames: {st.session_state.frames_closed}/{CONSECUTIVE_FRAMES}")
+webrtc_ctx = webrtc_streamer(
+    key="drowsiness-detector",
+    mode=WebRtcMode.SENDRECV,
+    rtc_configuration={
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+    },
+    video_processor_factory=VideoProcessor,
+    media_stream_constraints={
+        "video": True,
+        "audio": False
+    },
+    async_processing=True,
+)
 
-# Process the image if one is provided
-if picture:
-    bytes_data = picture.getvalue()
-    img_array = np.frombuffer(bytes_data, np.uint8)
-    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-    processed_img = process_image(img.copy())
-    st.image(processed_img, channels="BGR", caption="Processed Image")
+if webrtc_ctx.state.playing:
+    st.write("Detection is running...")

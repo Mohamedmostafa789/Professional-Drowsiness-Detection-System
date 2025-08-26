@@ -1,92 +1,56 @@
 import streamlit as st
 import cv2
+import dlib
+from scipy.spatial.distance import euclidean
 import numpy as np
 import time
-from scipy.spatial.distance import euclidean
-# We've removed pygame, so we no longer need these imports.
-# import pygame
-# import os
-import requests
-from twilio.rest import Client
-import mediapipe as mp
 
-# --- IMPORTANT SETUP & TROUBLESHOOTING ---
-# To fix the 'libGL.so.1' error on cloud services like Streamlit Cloud,
-# you must create a file named `packages.txt` in the same directory
-# as this script and add the following two lines to it:
-# libgl1
-# libglib2.0-0
-
-# You also need a `requirements.txt` and `.streamlit/secrets.toml` file.
-# The `requirements.txt` file should contain:
-# streamlit
-# opencv-python
-# numpy
-# scipy
-# twilio
-# mediapipe
+# --- IMPORTANT: SETUP INSTRUCTIONS ---
+# 1. You must have a 'requirements.txt' file with the following lines:
+#    streamlit
+#    opencv-python
+#    dlib
+#    scipy
+#    numpy
+#
+# 2. You must have a 'packages.txt' file with the following lines to install
+#    the necessary system dependencies on the Streamlit Cloud server:
+#    libgl1
+#    libglib2.0-0
+#
+# 3. Download the facial landmark model from dlib:
+#    - Download: http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
+#    - Unzip it to get 'shape_predictor_68_face_landmarks.dat'
+#    - Place this .dat file in the same directory as this Python script.
 
 # --- Configuration ---
 st.title("Professional Drowsiness Detector")
-st.markdown("This app uses your webcam to detect drowsiness. A **visual alarm** will be displayed and an SMS will be sent if your eyes are closed for too long.")
+st.markdown("This app uses your webcam to detect drowsiness. A **visual alarm** will be displayed if your eyes are closed for too long.")
 
 # Parameters for drowsiness detection
 EAR_THRESHOLD = 0.25
 CONSECUTIVE_FRAMES = 15
 
-# --- Twilio SMS Configuration (using Streamlit Secrets) ---
+# --- Dlib Setup ---
 try:
-    account_sid = st.secrets["twilio"]["account_sid"]
-    auth_token = st.secrets["twilio"]["auth_token"]
-    twilio_client = Client(account_sid, auth_token)
-    
-    # Replace these with your actual phone numbers
-    TWILIO_PHONE_NUMBER = "+15017122661"  # Your Twilio phone number
-    MY_PHONE_NUMBER = "+15558675310"      # The number to send the SMS to
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+except RuntimeError as e:
+    st.error(f"Error loading dlib model: {e}")
+    st.info("Please make sure you have downloaded 'shape_predictor_68_face_landmarks.dat' and placed it in the same folder.")
+    st.stop()
 
-    # Cooldown period for SMS alerts (in seconds)
-    SMS_COOLDOWN = 300 # 5 minutes
-
-except KeyError:
-    st.error("Twilio API credentials not found in secrets.toml.")
-    st.info("Please create a `.streamlit/secrets.toml` file with `account_sid` and `auth_token` under a `[twilio]` header.")
-    twilio_client = None
+# Get the indexes for the left and right eye landmarks from the 68-point model
+(lStart, lEnd) = (36, 42)
+(rStart, rEnd) = (42, 48)
 
 # --- State Variables for Streamlit Session ---
-if 'is_running' not in st.session_state:
-    st.session_state.is_running = False
 if 'frames_closed' not in st.session_state:
     st.session_state.frames_closed = 0
-# The alarm is now just a state, not a sound.
 if 'alarm_active' not in st.session_state:
     st.session_state.alarm_active = False
-if 'last_sms_sent' not in st.session_state:
-    st.session_state.last_sms_sent = 0
 
-# --- Visual Alarm and SMS Playback Functions ---
-def activate_visual_alarm():
-    """Activates the visual alarm."""
-    st.session_state.alarm_active = True
-
-def deactivate_visual_alarm():
-    """Deactivates the visual alarm."""
-    st.session_state.alarm_active = False
-
-def send_sms_alert(message_body):
-    """Sends an SMS alert using the Twilio client."""
-    if twilio_client and (time.time() - st.session_state.last_sms_sent > SMS_COOLDOWN):
-        try:
-            message = twilio_client.messages.create(
-                to=MY_PHONE_NUMBER,
-                from_=TWILIO_PHONE_NUMBER,
-                body=message_body
-            )
-            st.session_state.last_sms_sent = time.time()
-            st.success(f"SMS alert sent! Message SID: {message.sid}")
-        except Exception as e:
-            st.warning(f"Failed to send SMS alert: {e}")
-
-# --- Core Drowsiness Detection Function ---
+# --- Core Drowsiness Detection Functions ---
 def eye_aspect_ratio(eye):
     """Calculates the Eye Aspect Ratio (EAR) for a given eye."""
     A = euclidean(eye[1], eye[5])
@@ -95,104 +59,66 @@ def eye_aspect_ratio(eye):
     ear = (A + B) / (2.0 * C)
     return ear
 
-def process_frame(frame, face_mesh):
-    # Flip the frame horizontally for a "mirror" effect
-    frame = cv2.flip(frame, 1)
-    # Convert the BGR image to RGB
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = face_mesh.process(rgb_frame)
+def process_image(img):
+    """Processes a single image for drowsiness detection."""
+    global frames_closed
 
-    if results.multi_face_landmarks:
-        for face_landmarks in results.multi_face_landmarks:
-            # MediaPipe eye landmark indices for EAR calculation
-            left_eye_indices = [33, 160, 158, 133, 153, 144]
-            right_eye_indices = [362, 385, 387, 263, 374, 380]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    faces = detector(gray, 0)
+    
+    if len(faces) > 0:
+        face = faces[0]
+        landmarks = predictor(gray, face)
+        
+        left_eye = np.array([(landmarks.part(i).x, landmarks.part(i).y) for i in range(lStart, lEnd)])
+        right_eye = np.array([(landmarks.part(i).x, landmarks.part(i).y) for i in range(rStart, rEnd)])
+        
+        left_ear = eye_aspect_ratio(left_eye)
+        right_ear = eye_aspect_ratio(right_eye)
+        avg_ear = (left_ear + right_ear) / 2.0
+        
+        cv2.drawContours(img, [cv2.convexHull(left_eye)], -1, (0, 255, 0), 1)
+        cv2.drawContours(img, [cv2.convexHull(right_eye)], -1, (0, 255, 0), 1)
 
-            left_eye_points = np.array([(face_landmarks.landmark[i].x * frame.shape[1],
-                                         face_landmarks.landmark[i].y * frame.shape[0])
-                                         for i in left_eye_indices])
-            right_eye_points = np.array([(face_landmarks.landmark[i].x * frame.shape[1],
-                                          face_landmarks.landmark[i].y * frame.shape[0])
-                                          for i in right_eye_indices])
-
-            left_ear = eye_aspect_ratio(left_eye_points)
-            right_ear = eye_aspect_ratio(right_eye_points)
-            avg_ear = (left_ear + right_ear) / 2.0
-
-            # Draw contours around the eyes
-            left_eye_hull = cv2.convexHull(left_eye_points.astype(np.int32))
-            right_eye_hull = cv2.convexHull(right_eye_points.astype(np.int32))
-            cv2.drawContours(frame, [left_eye_hull], -1, (0, 255, 0), 1)
-            cv2.drawContours(frame, [right_eye_hull], -1, (0, 255, 0), 1)
-
-            if avg_ear < EAR_THRESHOLD:
-                st.session_state.frames_closed += 1
-                if st.session_state.frames_closed >= CONSECUTIVE_FRAMES:
-                    activate_visual_alarm()
-                    cv2.putText(frame, "!!! DROWSINESS DETECTED !!!", (10, 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                    send_sms_alert("Drowsiness detected! Time to take a break.")
-            else:
-                st.session_state.frames_closed = 0
-                deactivate_visual_alarm()
+        (x, y, w, h) = (face.left(), face.top(), face.width(), face.height())
+        cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
+        
+        if avg_ear < EAR_THRESHOLD:
+            st.session_state.frames_closed += 1
+            if st.session_state.frames_closed >= CONSECUTIVE_FRAMES:
+                st.session_state.alarm_active = True
+                cv2.putText(img, "!!! DROWSINESS DETECTED !!!", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        else:
+            st.session_state.frames_closed = 0
+            st.session_state.alarm_active = False
     else:
         st.session_state.frames_closed = 0
-        deactivate_visual_alarm()
-        cv2.putText(frame, "No face detected", (10, 30),
+        st.session_state.alarm_active = False
+        cv2.putText(img, "No face detected", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-    return frame
+    return img
 
 # --- Main Streamlit App Logic ---
-video_placeholder = st.empty()
-status_message = st.empty()
-visual_alarm_placeholder = st.empty()
-
-if st.button('Start Detection'):
-    st.session_state.is_running = True
-    st.session_state.frames_closed = 0
-    st.session_state.alarm_active = False
+st.markdown("---")
+col1, col2 = st.columns([1, 1])
+with col1:
+    picture = st.camera_input("Take a picture to analyze...")
     
-elif st.button('Stop Detection'):
-    st.session_state.is_running = False
-    deactivate_visual_alarm()
-
-if st.session_state.is_running:
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        st.error("Error: Could not access webcam. Please check permissions.")
-        st.session_state.is_running = False
+with col2:
+    if st.session_state.alarm_active:
+        st.error("!!! Drowsiness Detected! Wake up! !!!")
     else:
-        status_message.info("Detection running. Looking for a face...")
-        
-        # Initialize MediaPipe FaceMesh
-        with mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=False,
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5) as face_mesh:
-            
-            while st.session_state.is_running:
-                ret, frame = cap.read()
-                if not ret:
-                    status_message.warning("Failed to get frame from webcam.")
-                    break
-                
-                processed_frame = process_frame(frame.copy(), face_mesh)
-                video_placeholder.image(processed_frame, channels="BGR", use_column_width=True)
-                
-                if st.session_state.alarm_active:
-                    # Display a large, red warning message
-                    visual_alarm_placeholder.error("!!! DROWSINESS DETECTED !!!")
-                else:
-                    # Clear the message if the alarm is not active
-                    visual_alarm_placeholder.empty()
+        st.success(f"Eyes Open. Closed frames: {st.session_state.frames_closed}/{CONSECUTIVE_FRAMES}")
 
-                status_message.success(f"Eyes Open. Closed frames: {st.session_state.frames_closed}/{CONSECUTIVE_FRAMES}")
+# Process the image if one is provided
+if picture:
+    # Read the image from the camera input as a NumPy array
+    bytes_data = picture.getvalue()
+    img_array = np.frombuffer(bytes_data, np.uint8)
+    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-
-            cap.release()
-            st.session_state.is_running = False
-            deactivate_visual_alarm()
-            status_message.info("Detection stopped.")
+    # Process the image and display the result
+    processed_img = process_image(img.copy())
+    st.image(processed_img, channels="BGR", caption="Processed Image")

@@ -3,3 +3,11 @@ opencv-python
 numpy
 scipy
 mediapipe
+streamlit-webrtc
+pyaudio
+av
+
+
+
+
+

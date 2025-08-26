@@ -125,7 +125,7 @@ webrtc_ctx = webrtc_streamer(
     key="drowsiness-detector",
     mode=WebRtcMode.SENDRECV,
     rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}, {"urls": ["stun:stun.l.google.com:19302"]}]
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
     },
     video_processor_factory=VideoProcessor,
     media_stream_constraints={

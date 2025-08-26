@@ -6,17 +6,6 @@ from scipy.spatial.distance import euclidean
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import av
 
-# --- IMPORTANT: SETUP INSTRUCTIONS ---
-# 1. You must have a 'requirements.txt' file with the following lines:
-
-#
-# 2. You must have a 'packages.txt' file with the following lines to install
-#    the necessary system dependencies on the Streamlit Cloud server:
-#    libgl1
-#    libglib2.0-0
-#    
-# This version avoids the single-frame limitation of st.camera_input() by using a
-# real-time video streamer.
 
 # --- Configuration ---
 st.title("Real-Time Drowsiness Detector")

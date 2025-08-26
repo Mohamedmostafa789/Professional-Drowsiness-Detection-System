@@ -196,4 +196,3 @@ if st.session_state.is_running:
             st.session_state.is_running = False
             deactivate_visual_alarm()
             status_message.info("Detection stopped.")
-

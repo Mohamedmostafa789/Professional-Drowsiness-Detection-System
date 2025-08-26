@@ -1,11 +1,5 @@
 streamlit
-dlib
-mediapipe
 opencv-python
-scipy
 numpy
-pygame
-requests
-twilio
-
-
+scipy
+mediapipe

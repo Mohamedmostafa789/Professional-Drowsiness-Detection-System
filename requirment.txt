@@ -5,4 +5,5 @@ numpy
 pygame 
 scipy
 requests
+twilio
 bz2-python

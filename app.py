@@ -10,6 +10,22 @@ import requests
 from twilio.rest import Client
 import mediapipe as mp
 
+# --- IMPORTANT SETUP & TROUBLESHOOTING ---
+# To fix the 'libGL.so.1' error on cloud services like Streamlit Cloud,
+# you must create a file named `packages.txt` in the same directory
+# as this script and add the following two lines to it:
+# libgl1
+# libglib2.0-0
+
+# You also need a `requirements.txt` and `.streamlit/secrets.toml` file.
+# The `requirements.txt` file should contain:
+# streamlit
+# opencv-python
+# numpy
+# scipy
+# twilio
+# mediapipe
+
 # --- Configuration ---
 st.title("Professional Drowsiness Detector")
 st.markdown("This app uses your webcam to detect drowsiness. A **visual alarm** will be displayed and an SMS will be sent if your eyes are closed for too long.")
@@ -180,3 +196,4 @@ if st.session_state.is_running:
             st.session_state.is_running = False
             deactivate_visual_alarm()
             status_message.info("Detection stopped.")
+

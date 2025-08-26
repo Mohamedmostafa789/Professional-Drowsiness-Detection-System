@@ -3,22 +3,20 @@ import cv2
 import numpy as np
 import time
 from scipy.spatial.distance import euclidean
-import pygame
-import os
+# We've removed pygame, so we no longer need these imports.
+# import pygame
+# import os
 import requests
 from twilio.rest import Client
 import mediapipe as mp
 
 # --- Configuration ---
 st.title("Professional Drowsiness Detector")
-st.markdown("This app uses your webcam to detect drowsiness. An alarm will sound and an SMS will be sent if your eyes are closed for too long.")
+st.markdown("This app uses your webcam to detect drowsiness. A **visual alarm** will be displayed and an SMS will be sent if your eyes are closed for too long.")
 
 # Parameters for drowsiness detection
 EAR_THRESHOLD = 0.25
 CONSECUTIVE_FRAMES = 15
-
-# Path to the alarm sound file
-ALARM_SOUND_FILE = "mixkit-facility-alarm-sound-999.wav"
 
 # --- Twilio SMS Configuration (using Streamlit Secrets) ---
 try:
@@ -43,35 +41,20 @@ if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 if 'frames_closed' not in st.session_state:
     st.session_state.frames_closed = 0
+# The alarm is now just a state, not a sound.
 if 'alarm_active' not in st.session_state:
     st.session_state.alarm_active = False
 if 'last_sms_sent' not in st.session_state:
     st.session_state.last_sms_sent = 0
 
-# --- Pygame Sound Setup ---
-try:
-    pygame.mixer.init()
-    if os.path.exists(ALARM_SOUND_FILE):
-        alarm_sound = pygame.mixer.Sound(ALARM_SOUND_FILE)
-    else:
-        st.error(f"Alarm sound file '{ALARM_SOUND_FILE}' not found. Please place it in the same folder.")
-        st.stop()
-except pygame.error as e:
-    st.error(f"Error initializing pygame mixer: {e}")
-    st.stop()
+# --- Visual Alarm and SMS Playback Functions ---
+def activate_visual_alarm():
+    """Activates the visual alarm."""
+    st.session_state.alarm_active = True
 
-# --- Sound and SMS Playback Functions ---
-def play_alarm():
-    """Plays the alarm sound using pygame in a loop."""
-    if not st.session_state.alarm_active:
-        st.session_state.alarm_active = True
-        alarm_sound.play(-1)
-
-def stop_alarm():
-    """Stops the alarm sound."""
-    if st.session_state.alarm_active:
-        st.session_state.alarm_active = False
-        pygame.mixer.stop()
+def deactivate_visual_alarm():
+    """Deactivates the visual alarm."""
+    st.session_state.alarm_active = False
 
 def send_sms_alert(message_body):
     """Sends an SMS alert using the Twilio client."""
@@ -129,16 +112,16 @@ def process_frame(frame, face_mesh):
             if avg_ear < EAR_THRESHOLD:
                 st.session_state.frames_closed += 1
                 if st.session_state.frames_closed >= CONSECUTIVE_FRAMES:
-                    play_alarm()
+                    activate_visual_alarm()
                     cv2.putText(frame, "!!! DROWSINESS DETECTED !!!", (10, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                     send_sms_alert("Drowsiness detected! Time to take a break.")
             else:
                 st.session_state.frames_closed = 0
-                stop_alarm()
+                deactivate_visual_alarm()
     else:
         st.session_state.frames_closed = 0
-        stop_alarm()
+        deactivate_visual_alarm()
         cv2.putText(frame, "No face detected", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
@@ -147,6 +130,7 @@ def process_frame(frame, face_mesh):
 # --- Main Streamlit App Logic ---
 video_placeholder = st.empty()
 status_message = st.empty()
+visual_alarm_placeholder = st.empty()
 
 if st.button('Start Detection'):
     st.session_state.is_running = True
@@ -155,7 +139,7 @@ if st.button('Start Detection'):
     
 elif st.button('Stop Detection'):
     st.session_state.is_running = False
-    stop_alarm()
+    deactivate_visual_alarm()
 
 if st.session_state.is_running:
     cap = cv2.VideoCapture(0)
@@ -183,11 +167,16 @@ if st.session_state.is_running:
                 video_placeholder.image(processed_frame, channels="BGR", use_column_width=True)
                 
                 if st.session_state.alarm_active:
-                    status_message.error("!!! Drowsiness Detected! Wake up! !!!")
+                    # Display a large, red warning message
+                    visual_alarm_placeholder.error("!!! DROWSINESS DETECTED !!!")
                 else:
-                    status_message.success(f"Eyes Open. Closed frames: {st.session_state.frames_closed}/{CONSECUTIVE_FRAMES}")
+                    # Clear the message if the alarm is not active
+                    visual_alarm_placeholder.empty()
+
+                status_message.success(f"Eyes Open. Closed frames: {st.session_state.frames_closed}/{CONSECUTIVE_FRAMES}")
+
 
             cap.release()
             st.session_state.is_running = False
-            stop_alarm()
+            deactivate_visual_alarm()
             status_message.info("Detection stopped.")

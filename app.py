@@ -6,23 +6,7 @@ from scipy.spatial.distance import euclidean
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import av
 
-# --- IMPORTANT: SETUP INSTRUCTIONS ---
-# 1. You must have a 'requirements.txt' file with the following lines:
-#    streamlit
-#    opencv-python
-#    numpy
-#    scipy
-#    mediapipe
-#    streamlit-webrtc
-#    av
-#
-# 2. You must have a 'packages.txt' file with the following lines to install
-#    the necessary system dependencies on the Streamlit Cloud server:
-#    libgl1
-#    libglib2.0-0
-#    
-# This version avoids the single-frame limitation of st.camera_input() by using a
-# real-time video streamer. It also removes the audio alarm to fix PyAudio installation issues.
+
 
 # --- Configuration ---
 st.title("Real-Time Drowsiness Detector")
@@ -125,7 +109,14 @@ webrtc_ctx = webrtc_streamer(
     key="drowsiness-detector",
     mode=WebRtcMode.SENDRECV,
     rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]},
+            {"urls": ["stun:stun2.l.google.com:19302"]},
+            {"urls": ["stun:stun.ekiga.net"]},
+            {"urls": ["stun:stun.ideasip.com"]},
+            {"urls": ["stun:stun.voipbuster.com"]},
+        ]
     },
     video_processor_factory=VideoProcessor,
     media_stream_constraints={

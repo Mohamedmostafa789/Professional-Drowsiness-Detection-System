@@ -1,8 +1,8 @@
 streamlit
 opencv-python
-dlib
 scipy
 numpy
 pygame
 requests
 twilio
+mediapipe

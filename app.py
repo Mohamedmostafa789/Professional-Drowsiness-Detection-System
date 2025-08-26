@@ -2,7 +2,6 @@ import streamlit as st
 import cv2
 import mediapipe as mp
 import numpy as np
-import pygame
 import os
 from scipy.spatial.distance import euclidean
 
@@ -16,7 +15,6 @@ from scipy.spatial.distance import euclidean
 # mediapipe
 # scipy
 # numpy
-# pygame
 
 # --- Configuration ---
 st.title("Real-Time Drowsiness Detector")
@@ -53,31 +51,6 @@ if 'alarm_active' not in st.session_state:
     st.session_state.alarm_active = False
 if 'cap' not in st.session_state:
     st.session_state.cap = None
-
-# --- Pygame Sound Setup ---
-try:
-    pygame.mixer.init()
-    if os.path.exists(ALARM_SOUND_FILE):
-        alarm_sound = pygame.mixer.Sound(ALARM_SOUND_FILE)
-    else:
-        st.error(f"Alarm sound file '{ALARM_SOUND_FILE}' not found. Please place it in the same folder.")
-        st.stop()
-except pygame.error as e:
-    st.error(f"Error initializing pygame mixer: {e}")
-    st.stop()
-
-# --- Sound Playback Functions ---
-def play_alarm():
-    """Plays the alarm sound using pygame in a loop."""
-    if not st.session_state.alarm_active:
-        st.session_state.alarm_active = True
-        alarm_sound.play(-1)  # -1 makes the sound loop indefinitely
-
-def stop_alarm():
-    """Stops the alarm sound."""
-    if st.session_state.alarm_active:
-        st.session_state.alarm_active = False
-        pygame.mixer.stop()
 
 # --- Core Drowsiness Detection Function ---
 def eye_aspect_ratio(eye_landmarks):
@@ -120,13 +93,13 @@ def process_frame(frame):
                 if st.session_state.frames_closed >= CONSECUTIVE_FRAMES:
                     cv2.putText(frame_bgr, "!!! DROWSINESS DETECTED !!!", (10, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                    play_alarm()
+                    st.session_state.alarm_active = True
             else:
                 st.session_state.frames_closed = 0
-                stop_alarm()
+                st.session_state.alarm_active = False
     else:
         st.session_state.frames_closed = 0
-        stop_alarm()
+        st.session_state.alarm_active = False
         cv2.putText(frame_bgr, "No face detected", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
@@ -135,6 +108,8 @@ def process_frame(frame):
 # --- Main Streamlit App Logic ---
 video_placeholder = st.empty()
 status_message = st.empty()
+# A placeholder for the audio player
+audio_placeholder = st.empty()
 
 col1, col2 = st.columns(2)
 with col1:
@@ -147,7 +122,6 @@ with col1:
 with col2:
     if st.button('Stop Detection'):
         st.session_state.is_running = False
-        stop_alarm()
         if st.session_state.cap:
             st.session_state.cap.release()
             st.session_state.cap = None
@@ -176,8 +150,13 @@ if st.session_state.is_running:
             
             if st.session_state.alarm_active:
                 status_message.error("!!! DROWSINESS DETECTED! Wake up! !!!")
+                # Use st.audio to play the sound directly in the browser
+                if os.path.exists(ALARM_SOUND_FILE):
+                    audio_placeholder.audio(ALARM_SOUND_FILE, format="audio/wav", autoplay=True, loop=True, key='alarm_audio')
             else:
                 status_message.success(f"Eyes Open. Closed frames: {st.session_state.frames_closed}/{CONSECUTIVE_FRAMES}")
+                # Clear the audio placeholder when the alarm is not active
+                audio_placeholder.empty()
 
         st.rerun()
 

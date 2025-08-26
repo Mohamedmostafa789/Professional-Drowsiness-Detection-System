@@ -11,12 +11,21 @@ import sys
 import time # Added for time tracking
 from twilio.rest import Client # Added for Twilio SMS functionality
 
-# --- IMPORTANT SETUP ---
-# This app now automatically downloads the required dlib model file.
-# You still need to ensure your 'mixkit-facility-alarm-sound-999.wav' file is in the same directory.
+# --- IMPORTANT SETUP & TROUBLESHOOTING ---
 #
-# You also need to install the required Python libraries by running:
-# pip install streamlit opencv-python dlib numpy pygame requests bz2-python twilio
+# The "ModuleNotFoundError: No module named 'cv2'" you're seeing means that
+# the `opencv-python` library, which contains the `cv2` module, was not
+# installed on your server or in your deployment environment.
+#
+# To fix this, you must ensure your deployment process runs the following command:
+#
+# pip install -r requirements.txt
+#
+# This command reads the `requirements.txt` file (which you should place in the
+# same directory as this script) and installs all the necessary libraries,
+# including opencv-python, dlib, numpy, etc.
+
+# You still need to ensure your 'mixkit-facility-alarm-sound-999.wav' file is in the same directory.
 
 # --- Configuration ---
 st.title("Professional Drowsiness Detector")
@@ -254,6 +263,8 @@ if st.session_state.is_running:
 
 
 
+
+
 # import streamlit as st
 # import cv2
 # import dlib
@@ -423,3 +434,4 @@ if st.session_state.is_running:
 #         cap.release()
 #         st.session_state.is_running = False
 #         status_message.info("Detection stopped.")
+

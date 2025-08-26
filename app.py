@@ -6,7 +6,6 @@ from scipy.spatial.distance import euclidean
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import av
 
-
 # --- Configuration ---
 st.title("Real-Time Drowsiness Detector")
 st.markdown("This app uses your live webcam feed to detect drowsiness. A **visual alarm** will be displayed when your eyes are closed for too long.")
@@ -108,7 +107,7 @@ webrtc_ctx = webrtc_streamer(
     key="drowsiness-detector",
     mode=WebRtcMode.SENDRECV,
     rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}, {"urls": ["stun:stun.l.google.com:19302?transport=tcp"]}]
     },
     video_processor_factory=VideoProcessor,
     media_stream_constraints={

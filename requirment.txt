@@ -1,0 +1,8 @@
+streamlit
+opencv-python
+dlib
+numpy
+pygame 
+scipy
+requests
+bz2-python
